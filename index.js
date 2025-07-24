@@ -1,12 +1,13 @@
 require('dotenv').config();
 const express = require('express');
-const { ValidationError } = require('sequelize');  // Correct import here
-const app = express();
+const { ValidationError } = require('sequelize');
 const sequelize = require('./utils/db');
 const Blog = require('./models/blog');
 const User = require('./models/user');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+
+const app = express();
 
 // Associations
 User.hasMany(Blog);
@@ -25,9 +26,24 @@ const tokenExtractor = (req, res, next) => {
 
 // ROUTES
 
-// GET all blogs with user info
+// GET all blogs with user info and filtering & ordering (Exercises 13.13-13.15)
 app.get('/api/blogs', async (req, res) => {
-  const blogs = await Blog.findAll({ include: { model: User, attributes: ['name', 'username'] } });
+  const { search } = req.query;
+  const { Op } = require('sequelize');
+
+  const where = {};
+  if (search) {
+    where[Op.or] = [
+      { title: { [Op.iLike]: `%${search}%` } },
+      { author: { [Op.iLike]: `%${search}%` } },
+    ];
+  }
+
+  const blogs = await Blog.findAll({
+    where,
+    order: [['likes', 'DESC']],
+    include: { model: User, attributes: ['name', 'username'] },
+  });
   res.json(blogs);
 });
 
@@ -88,7 +104,6 @@ app.post('/api/users', async (req, res, next) => {
   try {
     const { name, username, password } = req.body;
 
-    // Validate presence of password if you want (optional here)
     if (!password || password.length < 3) {
       return res.status(400).json({ error: 'Password must be at least 3 characters long' });
     }
@@ -148,6 +163,26 @@ app.post('/api/login', async (req, res) => {
   res.json({ token, username: user.username, name: user.name });
 });
 
+// GET /api/authors with blog counts and total likes by author
+app.get('/api/authors', async (req, res) => {
+  const { fn, col } = require('sequelize');
+  const authors = await Blog.findAll({
+    attributes: [
+      'author',
+      [fn('COUNT', col('author')), 'articles'],
+      [fn('SUM', col('likes')), 'likes'],
+    ],
+    group: ['author'],
+    order: [[fn('SUM', col('likes')), 'DESC']],
+  });
+
+  res.json(authors.map(a => ({
+    author: a.author,
+    articles: a.dataValues.articles,
+    likes: a.dataValues.likes,
+  })));
+});
+
 // ERROR HANDLING MIDDLEWARE
 app.use((err, req, res, next) => {
   if (err instanceof ValidationError) {
@@ -160,23 +195,27 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// START SERVER
-const PORT = process.env.PORT || 3001;
+// EXPORT the app for tests
+module.exports = app;
 
-const start = async () => {
-  try {
-    await sequelize.authenticate();
-    console.log('Connected to database');
+// START SERVER only if run directly
+if (require.main === module) {
+  const PORT = process.env.PORT || 3001;
 
-    // Sync models with database, alters tables if needed
-    await sequelize.sync({ alter: true });
+  const start = async () => {
+    try {
+      await sequelize.authenticate();
+      console.log('Connected to database');
 
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error('Failed to connect to db:', err);
-  }
-};
+      await sequelize.sync({ alter: true });
 
-start();
+      app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+      });
+    } catch (err) {
+      console.error('Failed to connect to db:', err);
+    }
+  };
+
+  start();
+}
