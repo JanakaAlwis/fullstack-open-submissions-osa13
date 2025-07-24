@@ -14,8 +14,20 @@ app.get('/api/blogs', async (req, res) => {
 app.post('/api/blogs', async (req, res) => {
   console.log('Received body:', req.body);
 
+  const { author, title, url, likes } = req.body;
+
+  if (!title || !url) {
+    console.error('Validation error: title or url missing');
+    return res.status(400).json({ error: 'Title and URL are required' });
+  }
+
   try {
-    const blog = await Blog.create(req.body);
+    const blog = await Blog.create({
+      author,
+      title,
+      url,
+      likes: likes || 0,
+    });
     console.log('Created blog:', blog.toJSON());
     res.status(201).json(blog);
   } catch (error) {
