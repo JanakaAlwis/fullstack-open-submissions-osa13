@@ -207,7 +207,7 @@ if (require.main === module) {
       await sequelize.authenticate();
       console.log('Connected to database');
 
-      await sequelize.sync({ alter: true });
+      // await sequelize.sync({ alter: true });
 
       app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);

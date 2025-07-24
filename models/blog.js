@@ -1,6 +1,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../utils/db');
 
+const currentYear = new Date().getFullYear();
+
 const Blog = sequelize.define('blog', {
   author: {
     type: DataTypes.STRING,
@@ -17,12 +19,15 @@ const Blog = sequelize.define('blog', {
     type: DataTypes.INTEGER,
     defaultValue: 0,
   },
-  created_at: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
+  year: {
+    type: DataTypes.INTEGER,
+    validate: {
+      min: 1991,
+      max: currentYear,
+    },
   },
 }, {
-  timestamps: false, 
+  timestamps: true,
 });
 
 module.exports = Blog;
