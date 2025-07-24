@@ -7,7 +7,9 @@ const Blog = require('./models/blog');
 app.use(express.json());
 
 app.get('/api/blogs', async (req, res) => {
-  const blogs = await Blog.findAll();
+  const blogs = await Blog.findAll({
+    order: [['created_at', 'DESC']],
+  });
   res.json(blogs);
 });
 
