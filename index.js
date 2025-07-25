@@ -9,6 +9,7 @@ const sequelize = require('./utils/db')
 const Blog = require('./models/blog')
 const User = require('./models/user')
 const ReadingList = require('./models/readinglist')
+const Session = require('./models/session')
 
 const tokenExtractor = require('./utils/tokenExtractor')
 const userExtractor = require('./utils/userExtractor')
@@ -23,6 +24,34 @@ Blog.belongsTo(User)
 
 User.belongsToMany(Blog, { through: ReadingList, as: 'readings' })
 Blog.belongsToMany(User, { through: ReadingList, as: 'usersMarked' })
+
+User.hasMany(Session)
+Session.belongsTo(User)
+
+// -------------------- MIDDLEWARE TO VERIFY SESSION --------------------
+
+const sessionValidator = async (req, res, next) => {
+  try {
+    const decodedToken = jwt.verify(req.token, process.env.SECRET)
+    const session = await Session.findOne({
+      where: { userId: decodedToken.id, token: req.token },
+    })
+
+    if (!session) {
+      return res.status(401).json({ error: 'Session expired or invalidated' })
+    }
+
+    const user = await User.findByPk(decodedToken.id)
+    if (!user || user.disabled) {
+      return res.status(403).json({ error: 'Account disabled' })
+    }
+
+    req.user = user
+    next()
+  } catch (err) {
+    return res.status(401).json({ error: 'Token missing or invalid' })
+  }
+}
 
 // -------------------- BLOG ROUTES --------------------
 
@@ -48,42 +77,29 @@ app.get('/api/blogs', async (req, res) => {
   res.json(blogs)
 })
 
-app.post('/api/blogs', tokenExtractor, async (req, res) => {
-  try {
-    const decodedToken = jwt.verify(req.token, process.env.SECRET)
-    const user = await User.findByPk(decodedToken.id)
-    if (!user) return res.status(401).json({ error: 'Invalid user' })
+app.post('/api/blogs', tokenExtractor, sessionValidator, async (req, res) => {
+  const { title, url, author, likes } = req.body
+  if (!title || !url) return res.status(400).json({ error: 'title and url required' })
 
-    const { title, url, author, likes } = req.body
-    if (!title || !url) return res.status(400).json({ error: 'title and url required' })
+  const blog = await Blog.create({
+    title,
+    url,
+    author,
+    likes: likes || 0,
+    userId: req.user.id,
+  })
 
-    const blog = await Blog.create({
-      title,
-      url,
-      author,
-      likes: likes || 0,
-      userId: user.id,
-    })
-
-    res.status(201).json(blog)
-  } catch (err) {
-    res.status(401).json({ error: 'token missing or invalid' })
-  }
+  res.status(201).json(blog)
 })
 
-app.delete('/api/blogs/:id', tokenExtractor, async (req, res) => {
-  try {
-    const decodedToken = jwt.verify(req.token, process.env.SECRET)
-    const blog = await Blog.findByPk(req.params.id)
+app.delete('/api/blogs/:id', tokenExtractor, sessionValidator, async (req, res) => {
+  const blog = await Blog.findByPk(req.params.id)
 
-    if (!blog) return res.status(404).json({ error: 'blog not found' })
-    if (blog.userId !== decodedToken.id) return res.status(403).json({ error: 'not authorized' })
+  if (!blog) return res.status(404).json({ error: 'blog not found' })
+  if (blog.userId !== req.user.id) return res.status(403).json({ error: 'not authorized' })
 
-    await blog.destroy()
-    res.status(204).end()
-  } catch (err) {
-    res.status(401).json({ error: 'token missing or invalid' })
-  }
+  await blog.destroy()
+  res.status(204).end()
 })
 
 // -------------------- USER ROUTES --------------------
@@ -148,17 +164,25 @@ app.get('/api/users/:id', async (req, res) => {
   res.json(user)
 })
 
-// -------------------- LOGIN --------------------
+// -------------------- LOGIN / LOGOUT --------------------
 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body
   const user = await User.findOne({ where: { username } })
 
-  const valid = user ? await bcrypt.compare(password, user.passwordHash) : false
+  const valid = user && await bcrypt.compare(password, user.passwordHash)
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' })
+  if (user.disabled) return res.status(403).json({ error: 'Account disabled' })
 
   const token = jwt.sign({ id: user.id, username: user.username }, process.env.SECRET)
+  await Session.create({ token, userId: user.id })
+
   res.json({ token, username: user.username, name: user.name })
+})
+
+app.delete('/api/logout', tokenExtractor, async (req, res) => {
+  await Session.destroy({ where: { token: req.token } })
+  res.status(204).end()
 })
 
 // -------------------- AUTHORS SUMMARY --------------------
@@ -195,11 +219,10 @@ app.post('/api/readinglists', async (req, res, next) => {
   }
 })
 
-app.put('/api/readinglists/:id', tokenExtractor, userExtractor, async (req, res, next) => {
+app.put('/api/readinglists/:id', tokenExtractor, sessionValidator, async (req, res, next) => {
   try {
     const reading = await ReadingList.findByPk(req.params.id)
     if (!reading) return res.status(404).json({ error: 'Reading list entry not found' })
-
     if (reading.userId !== req.user.id) {
       return res.status(403).json({ error: 'Unauthorized to update this reading list entry' })
     }

@@ -1,17 +1,23 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/user')
+const User = require('../models/user');
+const Session = require('../models/session');
 
-module.exports = async (req, res, next) => {
+const userExtractor = async (req, res, next) => {
   try {
-    const decodedToken = jwt.verify(req.token, process.env.SECRET);
-    const user = await User.findByPk(decodedToken.id);
-    if (!user) {
-      return res.status(401).json({ error: 'invalid token' });
+    const decoded = jwt.verify(req.token, process.env.SECRET);
+    const session = await Session.findOne({ where: { token: req.token } });
+    if (!session) return res.status(401).json({ error: 'Invalid session' });
+
+    const user = await User.findByPk(decoded.id);
+    if (!user || user.disabled) {
+      return res.status(401).json({ error: 'User disabled or not found' });
     }
 
     req.user = user;
     next();
-  } catch (error) {
-    return res.status(401).json({ error: 'token invalid or missing' });
+  } catch (err) {
+    next(err);
   }
 };
+
+module.exports = userExtractor;
