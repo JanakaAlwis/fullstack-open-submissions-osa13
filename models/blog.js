@@ -1,33 +1,27 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../utils/db');
+const { Model, DataTypes } = require('sequelize')
+const sequelize = require('../utils/db')
 
-const currentYear = new Date().getFullYear();
+class Blog extends Model {}
 
-const Blog = sequelize.define('blog', {
+Blog.init({
+  title: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
   author: {
     type: DataTypes.STRING,
   },
-  title: {
-    type: DataTypes.STRING,
-    allowNull: false,
-  },
   url: {
     type: DataTypes.STRING,
-    allowNull: false,
+    allowNull: false
   },
   likes: {
     type: DataTypes.INTEGER,
-    defaultValue: 0,
-  },
-  year: {
-    type: DataTypes.INTEGER,
-    validate: {
-      min: 1991,
-      max: currentYear,
-    },
-  },
+    defaultValue: 0
+  }
 }, {
-  timestamps: true,
-});
+  sequelize,
+  modelName: 'blog',
+})
 
-module.exports = Blog;
+module.exports = Blog
